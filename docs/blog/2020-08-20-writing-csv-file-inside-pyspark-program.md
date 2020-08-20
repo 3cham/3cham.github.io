@@ -50,13 +50,13 @@ since the executor does not have 82GiB of memory for having this big partition i
 
 So how could we solve this problem? Going back one step, we found out that it is better to 
 have multiple csv files at once because:
- - Besides `OutOfMemory`, spark takes a lot of time to repartition our dataframe
+ - Besides `OutOfMemoryException`, spark takes a lot of time to repartition our dataframe
  - Without repartition, our files are written in parallel, and it is really fast!
  - **It is possible to merge those files into single file**
 
 I found that the most typical way when it comes to file manipulating along with 
 pyspark is to use subprocess and calling unix command inside our driver program. It works
-most of the situations. However, it becomes pretty complicated in our case: we need to copy 
+in most of the cases. However, it becomes pretty complicated in our situation: we need to copy 
 those files into our spark driver node. Working with HDFS on yarn, our spark driver 
 program is started as a yarn container with a temporary filesystem. After copying & merging
 files, you'll need to put our final csv file back to HDFS since our spark driver filesystem 
