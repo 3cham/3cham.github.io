@@ -11,9 +11,9 @@ way with pyspark.
 In our tech stack, pyspark is heavily used by teams for implementing their 
 data science pipelines. We prefer spark not only because of its friendly 
 python API but also its great performance while processing large amount of
-data. For example: we have an Alternating Least Square model that recommends
-products for more than 40 million users. With fine-tuned spark application,
-we achieved to train the model in under 2 hours. 
+data. For example: we have an [Alternating Least Square model](http://stanford.edu/~rezab/classes/cme323/S15/notes/lec14.pdf) that recommends
+products for more than 40 million users. With a fine-tuned spark application,
+we achieved to train the model within 1 hour. 
 
 The current infrastructure requires us to produce the recommendation weekly
 and the result should be single uncompressed csv file containing the top 100 
@@ -28,7 +28,29 @@ To produce this file, we started with saving the prediction in one dataframe. Af
 that the csv files could be written as simply as:
 
 ```python
-df.save
+df.write.csv("/path/to/csv/file")
 ```
+
+However our dataframe may have multiple partitions and we ended up having multiple 
+csv files inside our target path. One trivial way to have single csv file is to 
+repartition the dataframe before writing sothat it has only 1 partition, thus, 1 
+csv file is produced. 
+```python
+df.repartition(1).write.csv("/path/to/csv/file")
+```
+> **_NOTE:_** If you plan to have other than 1 partition, you should use `coalesce()` 
+> instead of `repartition()` for better performance.
+
+Unfortunately, it doesn't work this way because spark has to move all the data into 
+1 executor and writes our csv file from there. It will cause `OutOfMemoryException`
+since the executor does not have 82GiB of memory for having this big partition in memory.
+> **_NOTE:_** Actually, to have 82GiB capacity for single partition, the executors
+> must be configured with >150GiB each, due to [Spark's memory management](https://spark.apache.org/docs/latest/configuration.html#memory-management).
+
+So how could we solve this problem? We need to go back one step by having 
+
+
+
+
 
  
