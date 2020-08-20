@@ -114,3 +114,67 @@ Why filtering? Because spark also writes _SUCCESS file to this folder, we don't 
 
 
 #### 3. Merge csv files 
+
+This part is a bit tricky since Hadoop FileSystem only have `concat()` method to concatenate 
+file with each other and it takes [two parameters as input:](https://hadoop.apache.org/docs/current/api/org/apache/hadoop/fs/FileSystem.html#concat-org.apache.hadoop.fs.Path-org.apache.hadoop.fs.Path:A-)
+- One file as Path object
+- Other files as array of Path objects
+
+Constructing the first param is easy, but not for the second array of `len(csv_files) - 1` 
+Path objects. We could not instantiate it directly with `spark._jvm` since we don't have 
+any constructor for array type in Java. This is when the `py4j gateway` comes to play. 
+According to [py4j's document](https://www.py4j.org/py4j_java_gateway.html#javagateway), 
+JavaGateway is the main interation point between a python VM and JVM. We can create our 
+array with https://www.py4j.org/py4j_java_gateway.html#py4j.java_gateway.JavaGateway.new_array
+
+```python
+# The gateway is, however, could be get only from pyspark Spark Context
+gateway = spark.sparkContext._gateway
+
+# create a java array with len(csv_files)-1 element
+source_files_array = gateway.new_array(spark._jvm.org.apache.hadoop.fs.Path, len(csv_files)-1)
+
+for i in range(len(csv_files)-1):
+    source_files_array[i] = spark._jvm.org.apache.hadoop.fs.Path("/path/to/csv/file/" + csv_files[i])
+
+# merge to one csv file, which is the last file in our csv_files list
+final_file = spark._jvm.org.apache.hadoop.fs.Path("/path/to/csv/file/" + csv_files[len(csv_files) - 1])
+fs.concat(final_file, source_files_array)
+```
+
+Concatenating files using HDFS FileSystem is actually very performant since the files 
+are concatenated in parallel. From needing more than 40 minutes for repartition, we now
+only need about 2 minutes for writing our single csv file. Putting all together, the 
+code snippet for this is:
+
+```python
+# Here we create a JVM hadoop FileSystem object and represent it in our python `fs` variable
+fs = spark._jvm.org.apache.hadoop.fs.FileSystem.get(spark._jsc.hadoopConfiguration())
+
+# construct a Path object to our target folder
+target_path = spark._jvm.org.apache.hadoop.fs.Path("/path/to/csv/file")
+
+# get contents of target folder by calling listStatus() method from java API
+file_statuses = fs.listStatus(target_path)
+
+# get only csv files by calling getPath().getName() method from java API
+csv_files = [ _file.getPath().getName() for _file in file_statuses if _file.getPath().getName().endswith(".csv")]
+
+# only merge if we have more than 1 csv file ;)
+if len(csv_files) > 1:
+    # The gateway is, however, could be get only from pyspark Spark Context
+    gateway = spark.sparkContext._gateway
+    
+    # create a java array with len(csv_files)-1 element
+    source_files_array = gateway.new_array(spark._jvm.org.apache.hadoop.fs.Path, len(csv_files)-1)
+    
+    for i in range(len(csv_files)-1):
+        source_files_array[i] = spark._jvm.org.apache.hadoop.fs.Path("/path/to/csv/file/" + csv_files[i])
+    
+    # merge to one csv file, which is the last file in our csv_files list
+    final_file = spark._jvm.org.apache.hadoop.fs.Path("/path/to/csv/file/" + csv_files[len(csv_files) - 1])
+    fs.concat(final_file, source_files_array)
+```
+
+I hope with this approach, you could achieve more interesting thing inside spark JVM world 
+without spawning subprocess. 
